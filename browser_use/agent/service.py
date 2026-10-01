@@ -1935,7 +1935,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					action_data=action_data,
 					result=result,
 					elapsed_seconds=time_elapsed,
-					cached_selector_map=cached_selector_map,
 				)
 
 				if results[-1].is_done or results[-1].error or i == total_actions - 1:

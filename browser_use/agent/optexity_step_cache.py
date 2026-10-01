@@ -82,10 +82,11 @@ def capture_target(node: Any) -> dict[str, Any] | None:
 	return _node_snapshot(node) if tracing_enabled() else None
 
 
-def execution_metadata(metadata: Any, target: dict[str, Any] | None, *, sensitive: bool = False) -> dict[str, Any]:
+def execution_metadata(metadata: Any, target: dict[str, Any] | None, *, sensitive: bool = False) -> dict[str, Any] | None:
+	if not tracing_enabled():
+		return metadata if isinstance(metadata, dict) else None
 	result = dict(metadata) if isinstance(metadata, dict) else {}
-	if tracing_enabled():
-		result['optexity_trace'] = {'target': target, 'executed': True, 'sensitive': sensitive}
+	result['optexity_trace'] = {'target': target, 'executed': True, 'sensitive': sensitive}
 	return result
 
 
@@ -117,13 +118,11 @@ def record_action_trace(
 	action_data: dict[str, Any],
 	result: Any,
 	elapsed_seconds: float,
-	cached_selector_map: dict[int, Any],
 ) -> None:
 	"""Append returned action evidence. Recorder errors deliberately fail learning.
 
-	Never promote a run whose trace could not be written. The cached selector
-	map argument remains for API compatibility; actual target comes from tool
-	metadata, not the potentially stale model snapshot.
+	Never promote a run whose trace could not be written. The actual target comes
+	from tool metadata, not the potentially stale model snapshot.
 	"""
 	trace_dir = _TRACE_DIR.get() or os.environ.get('OPTEXITY_BROWSER_USE_TRACE_DIR')
 	if not trace_dir:

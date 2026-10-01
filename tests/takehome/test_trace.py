@@ -4,11 +4,21 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+
 from browser_use.agent.optexity_step_cache import record_action_trace, trace_actions_to
 
 
 class TraceTests(unittest.TestCase):
-	def record(self, node, value='test-secret'):
+	def test_disabled_metadata_preserves_existing_contract(self):
+		from unittest.mock import patch
+
+		from browser_use.agent.optexity_step_cache import execution_metadata
+
+		with patch('browser_use.agent.optexity_step_cache.tracing_enabled', return_value=False):
+			self.assertIsNone(execution_metadata(None, None))
+			self.assertEqual(execution_metadata({'x': 1}, None), {'x': 1})
+
+	def record(self, value='test-secret'):
 		record_action_trace(
 			task='enter ' + value,
 			step_number=1,
@@ -26,11 +36,10 @@ class TraceTests(unittest.TestCase):
 				},
 			},
 			elapsed_seconds=0.1,
-			cached_selector_map={1: node},
 		)
 
 	def test_context_restores_after_exception(self):
-		from browser_use.agent.optexity_step_cache import _TRACE_DIR, _RUN_ID
+		from browser_use.agent.optexity_step_cache import _RUN_ID, _TRACE_DIR
 
 		with tempfile.TemporaryDirectory() as tmp:
 			with trace_actions_to(tmp):
@@ -59,10 +68,9 @@ class TraceTests(unittest.TestCase):
 		self.assertNotIn('value', _node_snapshot(node)['attributes'])
 
 	def test_secret_absent_from_entire_row(self):
-		node = SimpleNamespace(tag_name='input', attributes={'type': 'password', 'value': 'test-secret'})
 		with tempfile.TemporaryDirectory() as tmp:
 			with trace_actions_to(tmp):
-				self.record(node)
+				self.record()
 			text = (Path(tmp) / 'browser_use_trace.jsonl').read_text()
 			self.assertNotIn('test-secret', text)
 			self.assertTrue(json.loads(text)['redacted_fields'])
@@ -72,7 +80,7 @@ class TraceTests(unittest.TestCase):
 			async def one(name):
 				with trace_actions_to(root / name):
 					await asyncio.sleep(0)
-					self.record(None, name)
+					self.record(name)
 
 			await asyncio.gather(one('a'), one('b'))
 

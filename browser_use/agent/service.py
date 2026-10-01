@@ -21,6 +21,7 @@ from browser_use.agent.cloud_events import (
 	UpdateAgentTaskEvent,
 )
 from browser_use.agent.message_manager.utils import save_conversation
+from browser_use.agent.optexity_step_cache import record_action_trace
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import BaseMessage, ContentPartImageParam, ContentPartTextParam, UserMessage
 from browser_use.tokens.service import TokenCost
@@ -1925,6 +1926,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				time_elapsed = time_end - time_start
 
 				results.append(result)
+				record_action_trace(
+					task=self.task,
+					step_number=self.state.n_steps,
+					action_number=i + 1,
+					total_actions=total_actions,
+					action_name=action_name,
+					action_data=action_data,
+					result=result,
+					elapsed_seconds=time_elapsed,
+					cached_selector_map=cached_selector_map,
+				)
 
 				if results[-1].is_done or results[-1].error or i == total_actions - 1:
 					break

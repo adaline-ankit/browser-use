@@ -7,13 +7,13 @@ caller's logging policy; only this module's JSONL output is sanitized here.
 import copy
 import hashlib
 import json
-import os
 import time
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 _TRACE_DIR: ContextVar[str | None] = ContextVar('optexity_trace_dir', default=None)
 _RUN_ID: ContextVar[str | None] = ContextVar('optexity_trace_run', default=None)
@@ -51,7 +51,7 @@ def trace_actions_to(trace_dir: str | Path) -> Iterator[None]:
 
 
 def tracing_enabled() -> bool:
-	return bool(_TRACE_DIR.get() or os.environ.get('OPTEXITY_BROWSER_USE_TRACE_DIR'))
+	return _TRACE_DIR.get() is not None
 
 
 def _node_snapshot(node: Any) -> dict[str, Any] | None:
@@ -124,7 +124,7 @@ def record_action_trace(
 	Never promote a run whose trace could not be written. The actual target comes
 	from tool metadata, not the potentially stale model snapshot.
 	"""
-	trace_dir = _TRACE_DIR.get() or os.environ.get('OPTEXITY_BROWSER_USE_TRACE_DIR')
+	trace_dir = _TRACE_DIR.get()
 	if not trace_dir:
 		return
 	result_data = result.model_dump(exclude_none=True) if hasattr(result, 'model_dump') else result
@@ -135,6 +135,9 @@ def record_action_trace(
 	allowed = {'input': {'index', 'text', 'clear'}, 'click': {'index'}, 'wait': {'seconds'}, 'done': {'success'}}.get(
 		action_name, set()
 	)
+	# Unknown execution options cannot be discarded without changing replay semantics.
+	if action_name in {'input', 'click', 'wait'} and (unsupported := set(params) - allowed):
+		raise ValueError(f'Unsupported {action_name} parameters: {sorted(unsupported)}')
 	stored = {k: v for k, v in params.items() if k in allowed}
 	redacted_fields = []
 	if action_name == 'input' and (metadata.get('sensitive') or _looks_sensitive(target)):

@@ -3,20 +3,62 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
+from typing import Literal
 
 from browser_use.agent.optexity_step_cache import record_action_trace, trace_actions_to
+from browser_use.dom.views import EnhancedDOMTreeNode, NodeType
+
+
+def node(
+	tag_name: str,
+	*,
+	attributes: dict[str, str] | None = None,
+	parent_node: EnhancedDOMTreeNode | None = None,
+	shadow_root_type: Literal['open', 'closed', 'user-agent'] | None = None,
+) -> EnhancedDOMTreeNode:
+	return EnhancedDOMTreeNode(
+		node_id=1,
+		backend_node_id=1,
+		node_type=NodeType.ELEMENT_NODE,
+		node_name=tag_name,
+		node_value='',
+		attributes=attributes or {},
+		is_scrollable=False,
+		is_visible=True,
+		absolute_position=None,
+		target_id='target',
+		frame_id='frame',
+		session_id='session',
+		content_document=None,
+		shadow_root_type=shadow_root_type,
+		shadow_roots=None,
+		parent_node=parent_node,
+		children_nodes=None,
+		ax_node=None,
+		snapshot_node=None,
+	)
 
 
 class TraceTests(unittest.TestCase):
-	def test_disabled_metadata_preserves_existing_contract(self):
-		from unittest.mock import patch
+	def test_unknown_action_options_are_not_silently_dropped(self):
+		with tempfile.TemporaryDirectory() as tmp, trace_actions_to(tmp):
+			with self.assertRaisesRegex(ValueError, 'Unsupported input parameters'):
+				record_action_trace(
+					task='fill form',
+					step_number=1,
+					action_number=1,
+					total_actions=1,
+					action_name='input',
+					action_data={'input': {'index': 1, 'text': 'hello', 'press_enter': True}},
+					result={},
+					elapsed_seconds=0.1,
+				)
 
+	def test_disabled_metadata_preserves_existing_contract(self):
 		from browser_use.agent.optexity_step_cache import execution_metadata
 
-		with patch('browser_use.agent.optexity_step_cache.tracing_enabled', return_value=False):
-			self.assertIsNone(execution_metadata(None, None))
-			self.assertEqual(execution_metadata({'x': 1}, None), {'x': 1})
+		self.assertIsNone(execution_metadata(None, None))
+		self.assertEqual(execution_metadata({'x': 1}, None), {'x': 1})
 
 	def record(self, value='test-secret'):
 		record_action_trace(
@@ -55,17 +97,21 @@ class TraceTests(unittest.TestCase):
 		from browser_use.agent.optexity_step_cache import _node_snapshot
 
 		for parent, scope in [
-			(SimpleNamespace(tag_name='iframe'), 'frame'),
-			(SimpleNamespace(shadow_root_type='open'), 'shadow'),
+			(node('iframe'), 'frame'),
+			(node('div', shadow_root_type='open'), 'shadow'),
 		]:
-			node = SimpleNamespace(tag_name='input', attributes={'name': 'x'}, parent_node=parent)
-			self.assertEqual(_node_snapshot(node)['scope'], scope)
+			target = node('input', attributes={'name': 'x'}, parent_node=parent)
+			snapshot = _node_snapshot(target)
+			assert snapshot is not None
+			self.assertEqual(snapshot['scope'], scope)
 
 	def test_snapshot_drops_dom_value(self):
 		from browser_use.agent.optexity_step_cache import _node_snapshot
 
-		node = SimpleNamespace(tag_name='input', attributes={'name': 'x', 'value': 'private'})
-		self.assertNotIn('value', _node_snapshot(node)['attributes'])
+		target = node('input', attributes={'name': 'x', 'value': 'private'})
+		snapshot = _node_snapshot(target)
+		assert snapshot is not None
+		self.assertNotIn('value', snapshot['attributes'])
 
 	def test_secret_absent_from_entire_row(self):
 		with tempfile.TemporaryDirectory() as tmp:

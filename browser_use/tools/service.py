@@ -11,6 +11,7 @@ except ImportError:
 	Laminar = None  # type: ignore
 from pydantic import BaseModel
 
+from browser_use.agent.optexity_step_cache import capture_target, execution_metadata
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import (
@@ -251,7 +252,7 @@ class Tools(Generic[Context]):
 				if node is None:
 					msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 					logger.warning(f'⚠️ {msg}')
-					return ActionResult(extracted_content=msg)
+					return ActionResult(error=msg)
 
 				# Get description of clicked element
 				element_desc = get_click_description(node)
@@ -259,6 +260,7 @@ class Tools(Generic[Context]):
 				# Highlight the element being clicked (truly non-blocking)
 				asyncio.create_task(browser_session.highlight_interaction_element(node))
 
+				trace_target = capture_target(node)
 				event = browser_session.event_bus.dispatch(ClickElementEvent(node=node))
 				await event
 				# Wait for handler to complete and get any exception or metadata
@@ -286,7 +288,7 @@ class Tools(Generic[Context]):
 				# Include click coordinates in metadata if available
 				return ActionResult(
 					extracted_content=memory,
-					metadata=click_metadata if isinstance(click_metadata, dict) else None,
+					metadata=execution_metadata(click_metadata, trace_target),
 				)
 			except BrowserError as e:
 				return handle_browser_error(e)
@@ -309,7 +311,7 @@ class Tools(Generic[Context]):
 			if node is None:
 				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
+				return ActionResult(error=msg)
 
 			# Highlight the element being typed into (truly non-blocking)
 			asyncio.create_task(browser_session.highlight_interaction_element(node))
@@ -321,6 +323,7 @@ class Tools(Generic[Context]):
 				if has_sensitive_data and sensitive_data:
 					sensitive_key_name = _detect_sensitive_key_name(params.text, sensitive_data)
 
+				trace_target = capture_target(node)
 				event = browser_session.event_bus.dispatch(
 					TypeTextEvent(
 						node=node,
@@ -351,7 +354,7 @@ class Tools(Generic[Context]):
 				return ActionResult(
 					extracted_content=msg,
 					long_term_memory=msg,
-					metadata=input_metadata if isinstance(input_metadata, dict) else None,
+					metadata=execution_metadata(input_metadata, trace_target, sensitive=has_sensitive_data),
 				)
 			except BrowserError as e:
 				return handle_browser_error(e)
